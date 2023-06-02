@@ -6,8 +6,10 @@ from direct.actor.Actor import Actor
 import panda3d.core as p3c
 from panda3d.core import PointLight, AmbientLight, DirectionalLight, LVector3
 
+import numpy as np
 import cv2 as cv
 import random
+import glm
 # STEP 1: Import the necessary modules.
 import mediapipe as mp
 from mediapipe.tasks import python
@@ -15,6 +17,7 @@ from mediapipe.tasks.python import vision
 
 from mediapipe.framework.formats import landmark_pb2
 
+from mediapipe.python.solutions.face_mesh_connections import FACEMESH_TESSELATION
 FACEMESH_TESSELATION = [
     (127, 34),  (34, 139),  (139, 127), (11, 0),    (0, 37),    (37, 11),
     (232, 231), (231, 120), (120, 232), (72, 37),   (37, 39),   (39, 72),
@@ -492,12 +495,22 @@ class MyApp(ShowBase):
         material.specular = (0.25, 0.25, 0.25, 1)  # 오브젝트의 반사광 설정
         self.points.set_material(material, 1)  # 오브젝트에 재질 할당
 
-    def init_textobject(self):
-        self.textObject = OnscreenText(text="TEST", pos=( -0.05, -0.95), 
-                        scale=(0.05, 0.05),
-                        fg=(1, 0, 0, 1), 
-                        align=p3c.TextNode.A_right,
-                        mayChange=1)
+    def init_axis(self):
+        # Load the environment model.
+        self.myAxis = self.loader.loadModel("models/zup-axis")
+        self.myAxis.reparentTo(self.render)
+        matScale1 = p3c.LMatrix4f().scaleMat(3.7, 3.7, 3.7)
+        self.myAxis.setMat(matScale1)
+
+    def init_textobject(self, text = ""):
+        self.textObject = OnscreenText(
+                            text=text, 
+                            pos=( -1.75, 0.95), 
+                            scale=(0.05, 0.05),
+                            fg=(1, 0, 0, 1), 
+                            align=p3c.TextNode.A_left,
+                            mayChange=1
+                            )
         self.textObject.reparentTo(self.aspect2d)
 
     def set_text(self, text):
@@ -518,41 +531,40 @@ class MyApp(ShowBase):
                                             num_hands=2)
         self.hand_detector = vision.HandLandmarker.create_from_options(options)
 
-    def init_animator(self):
+    def init_animator(self, skeleton = True):
         self.actor = Actor("panda", {"walk" : "panda-walk.egg"})
         self.actor.reparentTo(self.render)
         self.actor.setBin('background', 1) 
+        joint_names = self.actor.listJoints()
+        print(joint_names)
         # self.actor.lookAt(0, 0, 1)
         
-        # https://discourse.panda3d.org/t/visualise-actor-bones-skeleton/9961/14
-        def walkJointHierarchy(actor, part, parentNode = None, indent = ""):
-            if isinstance(part, p3c.CharacterJoint):
-                np = actor.exposeJoint(None, 'modelRoot', part.getName())
+        if skeleton:
+            # https://discourse.panda3d.org/t/visualise-actor-bones-skeleton/9961/14
+            def walkJointHierarchy(actor, part, parentNode = None, indent = ""):
+                if isinstance(part, p3c.CharacterJoint):
+                    np = actor.exposeJoint(None, 'modelRoot', part.getName())
 
-                if parentNode and parentNode.getName() != "root":
-                    lines = p3c.LineSegs()
-                    lines.setThickness(3.0)
-                    lines.setColor(random.random(), random.random(), random.random())
-                    lines.moveTo(0, 0, 0)
-                    lines.drawTo(np.getPos(parentNode))
-                    lnp = parentNode.attachNewNode(lines.create())
-                    lnp.setBin("fixed", 40)
-                    lnp.setDepthWrite(False)
-                    lnp.setDepthTest(False)
+                    if parentNode and parentNode.getName() != "root":
+                        lines = p3c.LineSegs()
+                        lines.setThickness(3.0)
+                        lines.setColor(random.random(), random.random(), random.random())
+                        lines.moveTo(0, 0, 0)
+                        lines.drawTo(np.getPos(parentNode))
+                        lnp = parentNode.attachNewNode(lines.create())
+                        lnp.setBin("fixed", 40)
+                        lnp.setDepthWrite(False)
+                        lnp.setDepthTest(False)
 
-                parentNode = np
+                    parentNode = np
 
-            for child in part.getChildren():
-                walkJointHierarchy(actor, child, parentNode, indent + "  ")
+                for child in part.getChildren():
+                    walkJointHierarchy(actor, child, parentNode, indent + "  ")
 
-        walkJointHierarchy(self.actor, self.actor.getPartBundle('modelRoot'), None)
-        
-        # self.cam.setPos(0, -50, 0)
-        # self.cam.lookAt(p3c.LPoint3f(0, 0, 0), p3c.LVector3f(0, 0, 1))
-        
-        # self.camLens.setNearFar(1, 1000)
-        # self.camLens.setFov(90)
-        #self.cam.lookAt(p3c.LPoint3f(0, 0, 0), p3c.LVector3f(1, 0, 0))
+            walkJointHierarchy(self.actor, self.actor.getPartBundle('modelRoot'), None)
+        else:
+            pass
+            # self.actor.setPos(10000,10000,10000)
         mat = p3c.Mat4(self.cam.getMat())
         mat.invertInPlace()
         self.mouseInterfaceNode.setMat(mat)
@@ -567,17 +579,14 @@ class MyApp(ShowBase):
         self.init_background()
         self.resetSBaseMouseCam()
 
-        # Load the environment model.
-        self.myAxis = self.loader.loadModel("models/zup-axis")
-        self.myAxis.reparentTo(self.render)
-        matScale1 = p3c.LMatrix4f().scaleMat(3.7, 3.7, 3.7)
-        self.myAxis.setMat(matScale1)
+        # self.init_axis()
         
         self.accept('1', self.reset)
         self.accept("escape", self.userExit)
 
-        # self.loadParameterFromFile()
         self.intrisic_mtx = None
+        # self.loadParameterFromFile()
+        
 
         self.GenerateFaceMesh()
         self.GenerateHandMesh()
@@ -585,7 +594,8 @@ class MyApp(ShowBase):
         self.init_matarial()
         # self.create_light()
 
-        self.init_animator()
+        self.init_animator(skeleton=False)
+        self.init_textobject()
 
         self.init_face_detector()
         self.init_hand_detector()
@@ -676,6 +686,7 @@ class MyApp(ShowBase):
         myTextureStage = p3c.TextureStage("myTextureStage")
         myTextureStage.setMode(p3c.TextureStage.MReplace)
         self.points.setTexture(myTextureStage, self.tex)
+
                 
 
     def GenerateHandMesh(self):
@@ -743,7 +754,7 @@ def updateBg(task):
     flip_frame = cv.flip(frame, 0)
     app.tex.setRamImage(flip_frame)
 
-    frame_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+    frame_rgb = cv.cvtColor(flip_frame, cv.COLOR_BGR2RGB)
     #################
     """
     face detection.
@@ -753,7 +764,7 @@ def updateBg(task):
     
 
     # STEP 3: Load the input image.
-    image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+    image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
 
     # STEP 4: Detect face landmarks from the input image.
     detection_result = app.face_detector.detect(image)
@@ -794,15 +805,18 @@ def updateBg(task):
     See Homepage: 
     """
     # STEP 3: Load the input image.
-    # image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+    image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
 
     # STEP 4: Detect hand landmarks from the input image.
     detection_result = app.hand_detector.detect(image)
-    
+    # detector.detect_for_video(image, frame_timestamp_ms)
     # STEP 5: Process the classification result. In this case, visualize it.
     # print(detection_result) # HandLandmarkerResult(handedness=[], hand_landmarks=[], hand_world_landmarks=[])
     # print(detection_result.handedness) # [[Category(index=1, score=0.9371275305747986, display_name='Right', category_name='Right')]]
     # print(detection_result.hand_landmarks)
+    if len(detection_result.hand_landmarks) == 0:
+        app.actor.setPos(10000,10000,10000)
+
     if len(detection_result.hand_landmarks) > 0:
         # print(len(detection_result.hand_landmarks[0])) # 21
         # print(len(detection_result.hand_world_landmarks[0])) # 21
@@ -814,6 +828,7 @@ def updateBg(task):
         app.pointsTexCoord2.setRow(0)
         point3d = p3c.LPoint3f()
         point_list = []
+        
         for idx, landmark in enumerate(detection_result.hand_landmarks[0]):
             p = p3c.LPoint3f(landmark.x, landmark.y, landmark.z)
             app.camLens.extrudeDepth(p3c.LPoint3f((p.x - 0.5) * 2.0, -(p.y - 0.5) * 2.0, p.z), point3d)
@@ -830,19 +845,28 @@ def updateBg(task):
         # 두 벡터를 구함
         vector1 = p3c.Vec3(point_list[0] - point_list[1])
         vector2 = p3c.Vec3(point_list[0] - point_list[2])
+        if detection_result.handedness[0][0].category_name in 'Left':
+            vector1 = p3c.Vec3(point_list[0] - point_list[2])
+            vector2 = p3c.Vec3(point_list[0] - point_list[1])
+            
 
         # 두 벡터의 외적을 계산하여 법선 벡터를 얻음
         normal = vector1.cross(vector2)
         normal.normalize()
 
-        app.actor.setPos((point_list[0] + point_list[1] + point_list[2])/3)  # 특정 위치로 이동
-        # app.actor.setHpr()     # 머리 방향 설정 (z축 방향)
-        # app.actor.lookAt(normal)
-        t = app.cam.getPos()
-        t.y = -t.y
-        app.actor.lookAt(t)
-        # app.actor.setHpr(179, 0,  0)
-        # 보통 -z를 바라본다.
+        pWS = (point_list[0] + point_list[1] + point_list[2])/3
+        app.actor.setPos(pWS)  # 특정 위치로 이동
+
+        app.set_text(f"{detection_result.handedness[0][0].category_name}")
+
+        glEye = glm.f32vec3(pWS.x, pWS.y, pWS.z)
+        glUp = glm.f32vec3(0,1,-1)
+        glView = glm.f32vec3(normal.x, normal.y, normal.z)
+        matView = glm.lookAtRH(glEye, glEye+glView, glUp)
+        matList = np.array(glm.inverse(matView).to_list()).flatten()
+        matT = p3c.LMatrix4f(*matList[0:16])
+        app.actor.setMat(matT)
+        # app.actor.lookAt(0, 30, 0)
     return task.cont
 
 if __name__ == "__main__":
